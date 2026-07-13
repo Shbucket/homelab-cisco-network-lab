@@ -132,7 +132,10 @@ Host access-sw2
 Host router1
     HostName 10.0.0.15
     User admin
-
+    KexAlgorithms +diffie-hellman-group14-sha1
+    HostKeyAlgorithms +ssh-rsa
+    Ciphers +aes128-cbc
+    MACs +hmac-sha1
 Host router2
     HostName 10.0.0.16
     User admin
