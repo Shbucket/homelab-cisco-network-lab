@@ -145,6 +145,43 @@ Host router2
     MACs +hmac-sha1
 \`\`\`
 
+
+## VLANs — Database Creation Across All Three Switches
+
+As part of the CCNA hardware capstone build, created the four VLANs that will structure the rest of the network segmentation work (trunking, inter-VLAN routing, ACLs) coming next.
+
+**VLANs created:**
+
+| VLAN | Name | Purpose |
+|------|------|---------|
+| 10 | WORKSTATIONS | End-user devices |
+| 20 | SERVERS | Server infrastructure |
+| 30 | MGMT | Network device management traffic |
+| 99 | NATIVE | Dedicated native VLAN for trunk hardening (see note below) |
+
+**Configuration applied identically across Core-Switch, Access-SW1, and Access-SW2:**
+
+```
+configure terminal
+vlan 10
+ name WORKSTATIONS
+vlan 20
+ name SERVERS
+vlan 30
+ name MGMT
+vlan 99
+ name NATIVE
+end
+write memory
+```
+
+**Why all three switches, not just one:** VLANs are a shared, logical construct — every switch that might carry or receive traffic for a given VLAN needs that VLAN in its own local database, or it has no way to correctly handle traffic tagged for it. Verified via `show vlan brief` that all four VLANs are present identically on all three switches before moving forward.
+
+**Why a dedicated native VLAN (99) instead of leaving it as the default (VLAN 1):** VLAN 1 is the default VLAN every port starts in, the default management VLAN, and the default native VLAN — all at once. Leaving the native VLAN as VLAN 1 means untagged trunk traffic shares a VLAN with a lot of default device traffic, which is a known, avoidable soft spot. Using a dedicated, otherwise-unused VLAN as the native VLAN isolates untagged trunk traffic from default management traffic — a hardening step that will be applied once trunking is configured in the next phase of this build.
+
+**Current state:** all four VLANs exist identically on all three switches. No ports have been reassigned yet — every port remains on VLAN 1, unchanged. Trunking, native VLAN assignment, and port reassignment come next.
+
+
 ## Next Steps
 - VLAN configuration and 802.1Q trunking between core and access switches
 - Inter-VLAN routing via SVIs on Core-Switch
