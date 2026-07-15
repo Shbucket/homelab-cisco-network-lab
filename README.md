@@ -174,7 +174,7 @@ vlan 99
 end
 write memory
 ```
-
+## Lessons Learned / Troubleshooting
 **Why all three switches, not just one:** VLANs are a shared, logical construct — every switch that might carry or receive traffic for a given VLAN needs that VLAN in its own local database, or it has no way to correctly handle traffic tagged for it. Verified via `show vlan brief` that all four VLANs are present identically on all three switches before moving forward.
 
 **Why a dedicated native VLAN (99) instead of leaving it as the default (VLAN 1):** VLAN 1 is the default VLAN every port starts in, the default management VLAN, and the default native VLAN — all at once. Leaving the native VLAN as VLAN 1 means untagged trunk traffic shares a VLAN with a lot of default device traffic, which is a known, avoidable soft spot. Using a dedicated, otherwise-unused VLAN as the native VLAN isolates untagged trunk traffic from default management traffic — a hardening step that will be applied once trunking is configured in the next phase of this build.
