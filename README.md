@@ -10,7 +10,7 @@ Building a segmented enterprise network using physical Cisco hardware as part of
 - 2x Cisco 1941 ISR routers
 - Dell OptiPlex 7060 running Proxmox VE
 
-## Phase 1: Basic Device Configuration (Complete)
+## Basic Device Configuration 
 
 Configured all five devices with:
 - Hostnames, enable secrets, console/VTY passwords
