@@ -181,9 +181,51 @@ write memory
 
 **Current state:** all four VLANs exist identically on all three switches. No ports have been reassigned yet — every port remains on VLAN 1, unchanged. Trunking, native VLAN assignment, and port reassignment come next.
 
+## Trunking — Core-Switch ↔ SW2 ↔ SW1, with a Real Mid-Config Outage
+
+With VLANs already created identically across all three switches, converted both inter-switch uplinks to 802.1Q trunks with a hardened native VLAN, carrying all four VLANs across the existing physical topology (Core-Switch ↔ SW2 ↔ SW1).
+
+**Configuration applied to both trunk links:**
+
+```
+configure terminal
+interface <uplink port>
+ switchport trunk encapsulation dot1q   ! 3560G only — 2960s are dot1q-only
+ switchport mode trunk
+ switchport trunk native vlan 99
+ switchport trunk allowed vlan 1,10,20,30,99
+ switchport nonegotiate
+end
+write memory
+```
+
+Applied to:
+- Core-Switch Gi0/1 ↔ Access-SW2 Fa0/4
+- Access-SW2 Fa0/5 ↔ Access-SW1 Fa0/1
+
+VLAN 1 was deliberately kept in the allowed list on both trunks so management/SSH traffic continues to flow across the newly-trunked links rather than being cut off.
+
+## Lessons Learned / Troubleshooting:
+
+Configured SW2's two uplink ports (both sides of the Core-Switch and SW1 links) first, in a single session. Immediately after, lost SSH reachability to Core-Switch entirely — `ping 10.0.0.2` returned `Destination host unreachable` from the local gateway rather than a timeout, indicating no route existed to reach it at all.
+
+**Root cause:** SW2's side of the Core-Switch link was already converted to trunk mode, but Core-Switch's matching port (Gi0/1) was still in its old access-mode configuration. A trunk port negotiating against a non-trunk port on the same link is a real mode mismatch, and it broke the path for management traffic (including VLAN 1) across that link entirely — a live demonstration of why both ends of a trunk link need to be reconfigured together, not one side at a time with a gap in between.
+
+**Resolution:** Since the network path itself was down, SSH was not an option to fix the far end. Connected to Core-Switch directly via console cable (diagnosing a separate PuTTY serial connection issue along the way — confirming the correct COM port in Device Manager first), and converted Gi0/1 to match SW2's trunk configuration. Once both ends agreed on trunk mode, SSH reachability to Core-Switch was immediately restored.
+
+**Lesson documented for future reference:** when converting a live uplink to a trunk, either do both ends within the same short window, or have console access ready before starting — a temporary mismatch between two ends of a trunk link can cut off the very management path being used to fix it.
+
+**Verification — confirmed on all three switches:**
+```
+show interfaces trunk
+```
+All three show mode `on`, encapsulation `802.1q`, native VLAN `99`, and all four VLANs (1, 10, 20, 30, 99) allowed and active.
+
+**Current state:** Core-Switch, Access-SW2, and Access-SW1 are fully trunked end to end across the existing topology, native VLAN hardened, management traffic confirmed flowing. No physical loop exists yet (topology is a straight line, not a triangle) — Spanning Tree Protocol and a new SW1↔SW2 direct link come next.
 
 ## Next Steps
-- VLAN configuration and 802.1Q trunking between core and access switches
+- Close the physical loop (new SW1↔SW2 link) and configure Spanning Tree Protocol — predict port roles, verify root election, test failover
+- EtherChannel — bundle a second link between two switches into one logical trunk
 - Inter-VLAN routing via SVIs on Core-Switch
 - OSPF between routers and Core-Switch
 - ACLs for traffic segmentation
