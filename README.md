@@ -31,7 +31,7 @@ Configured all five devices with:
 | Router1 | 1941 - ISR router | 10.0.0.15 | 15.0(1)M6 |
 | Router2 | 1941 - ISR router | 10.0.0.16 | 15.7(3)M6 |
 
-## Lessons Learned / Troubleshooting
+## Lessons Learned / Troubleshooting — Phase 1: Basic Configuration
 
 ### Legacy SSH Cipher Negotiation
 Modern OpenSSH clients have deprecated older key exchange, host key, cipher,
@@ -174,7 +174,7 @@ vlan 99
 end
 write memory
 ```
-## Lessons Learned / Troubleshooting
+## Lessons Learned / Troubleshooting — VLANs:
 **Why all three switches, not just one:** VLANs are a shared, logical construct — every switch that might carry or receive traffic for a given VLAN needs that VLAN in its own local database, or it has no way to correctly handle traffic tagged for it. Verified via `show vlan brief` that all four VLANs are present identically on all three switches before moving forward.
 
 **Why a dedicated native VLAN (99) instead of leaving it as the default (VLAN 1):** VLAN 1 is the default VLAN every port starts in, the default management VLAN, and the default native VLAN — all at once. Leaving the native VLAN as VLAN 1 means untagged trunk traffic shares a VLAN with a lot of default device traffic, which is a known, avoidable soft spot. Using a dedicated, otherwise-unused VLAN as the native VLAN isolates untagged trunk traffic from default management traffic — a hardening step that will be applied once trunking is configured in the next phase of this build.
@@ -205,7 +205,7 @@ Applied to:
 
 VLAN 1 was deliberately kept in the allowed list on both trunks so management/SSH traffic continues to flow across the newly-trunked links rather than being cut off.
 
-## Lessons Learned / Troubleshooting:
+## Lessons Learned / Troubleshooting — Trunking :
 
 Configured SW2's two uplink ports (both sides of the Core-Switch and SW1 links) first, in a single session. Immediately after, lost SSH reachability to Core-Switch entirely — `ping 10.0.0.2` returned `Destination host unreachable` from the local gateway rather than a timeout, indicating no route existed to reach it at all.
 
