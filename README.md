@@ -312,8 +312,6 @@ Port-channel1 appears as one interface (not two), with a lower path cost (12, ve
 **Current state — Layer 2 build complete:** VLANs (10/20/30/99) exist identically across all three switches. Both inter-switch links are trunked with a hardened native VLAN. A physical loop (Core-Switch ↔ SW2 ↔ SW1 ↔ SW2 direct) is safely managed by STP, verified via a live failover test. The Core↔SW2 link is now an EtherChannel bundle, verified and recognized by STP as a single path. Next: inter-VLAN routing via SVIs on Core-Switch, followed by OSPF — the start of the Layer 3 build.
 
 ## Next Steps
-- Close the physical loop (new SW1↔SW2 link) and configure Spanning Tree Protocol — predict port roles, verify root election, test failover
-- EtherChannel — bundle a second link between two switches into one logical trunk
 - Inter-VLAN routing via SVIs on Core-Switch
 - OSPF between routers and Core-Switch
 - ACLs for traffic segmentation
