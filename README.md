@@ -221,7 +221,95 @@ show interfaces trunk
 ```
 All three show mode `on`, encapsulation `802.1q`, native VLAN `99`, and all four VLANs (1, 10, 20, 30, 99) allowed and active.
 
-**Current state:** Core-Switch, Access-SW2, and Access-SW1 are fully trunked end to end across the existing topology, native VLAN hardened, management traffic confirmed flowing. No physical loop exists yet (topology is a straight line, not a triangle) — Spanning Tree Protocol and a new SW1↔SW2 direct link come next.
+## Spanning Tree Protocol — Closing the Loop and a Live Failover Test
+
+With VLANs and trunking already in place across all three switches, ran a new physical cable directly between Access-SW1 and Access-SW2, deliberately closing a loop in the topology (Core-Switch ↔ SW2 ↔ SW1, plus a direct SW1↔SW2 link) so Spanning Tree Protocol would have an actual redundant path to manage.
+
+**Configuration applied to the new link (both ends):**
+
+```
+configure terminal
+interface fa0/X
+ switchport mode trunk
+ switchport trunk native vlan 99
+ switchport trunk allowed vlan 1,10,20,30,99
+ switchport nonegotiate
+end
+write memory
+```
+
+The new port on Access-SW2 (Fa0/8) required a `no shutdown` first — it had been administratively disabled during an earlier hardening pass on unused ports.
+
+**Predicting before verifying:**
+
+Before checking anything, predicted the root bridge (Core-Switch, based on its known MAC address from earlier CDP output) and expected the newest, most redundant link — the new direct SW1↔SW2 connection — to end up as the blocked path, since the original Core→SW2→SW1 chain was the pre-existing, shorter route to root.
+
+**Verification — matched the prediction exactly:**
+
+```
+show spanning-tree vlan 1
+```
+
+Confirmed Core-Switch as root bridge (lowest bridge ID). On Access-SW1: the original link (Fa0/1, toward SW2) showed role **Root / FWD**, while the new direct link (Fa0/3, toward SW2) showed role **Altn / BLK** — correctly identified and blocked as the redundant path.
+
+**Live failover test:**
+
+Unplugged the active link (SW1's Fa0/1). SSH session briefly dropped (`Connection reset`) as the management path was riding on that link. Immediately re-ran `show spanning-tree vlan 1` on reconnect — Fa0/3 had transitioned from **Altn/BLK to Root/FWD**, taking over as the active path automatically. Reconnected the original cable afterward and confirmed the topology reconverged back to its original state.
+
+**What this demonstrated concretely:** a real, physical link failure, and the network continued operating without manual intervention — the previously-blocked redundant port activated automatically, and even the SSH session used to observe it recovered through the new active path in real time.
+
+**Current state:** physical loop safely managed by STP across all three switches, root bridge and port roles confirmed and tested against a real failure, not just configured. Native VLAN and trunk hardening from the previous phase remain intact across the new link. EtherChannel comes next, bundling the busiest link in this topology into one logical connection.
+
+## EtherChannel — Bundling Core-Switch ↔ SW2, and a Config-vs-Operational-State Mismatch
+
+With STP verified and the physical loop confirmed safe, bundled a second physical link between Core-Switch and Access-SW2 into a single logical EtherChannel using LACP, completing the Layer 2 build.
+
+**Configuration applied to both member ports (Core-Switch Gi0/1 + Gi0/3, matched on Access-SW2 Fa0/4 + Fa0/9):**
+
+```
+configure terminal
+interface g0/1
+ channel-group 1 mode active
+interface g0/3
+ switchport trunk encapsulation dot1q
+ switchport trunk native vlan 99
+ switchport trunk allowed vlan 1,10,20,30,99
+ switchport mode trunk
+ switchport nonegotiate
+ channel-group 1 mode active
+interface port-channel 1
+ switchport trunk encapsulation dot1q
+ switchport mode trunk
+ switchport trunk native vlan 99
+ switchport trunk allowed vlan 1,10,20,30,99
+ switchport nonegotiate
+end
+write memory
+```
+
+**Real troubleshooting encountered:**
+
+After configuring both member ports identically on both switches, `show etherchannel summary` showed one port bundled (`P`) and the second suspended (`s`) — despite `show running-config` on the suspended port displaying the exact same trunk configuration as its working counterpart.
+
+**Root cause:** `show interfaces <port> etherchannel` returned the actual reason directly: *"trunk mode of Gi0/3 is dynamic, Po1 is trunk"* — meaning the port's configured state (`switchport mode trunk`, sitting correctly in the running-config) had not fully propagated to the port's live operational state. IOS was still treating the interface as running dynamic trunk negotiation at the hardware level, a mismatch between what the config said and what the interface was actually doing.
+
+**Resolution:** bounced the interface (`shutdown` / `no shutdown`) to force it to fully re-apply its configuration and re-negotiate from a clean state. Confirmed via `show etherchannel summary` immediately after — both ports showed `(P)`, fully bundled.
+
+**Lesson documented for future reference:** a port's running-config and its actual operational state can disagree, particularly around trunk mode negotiation. `show run` alone isn't sufficient to diagnose an EtherChannel bundling failure — `show interfaces <port> etherchannel` gives the actual, specific suspension reason, and a targeted interface bounce is often the fix when configuration appears correct but isn't reflected in real-time behavior.
+
+**Verification:**
+```
+show etherchannel summary
+```
+Both Core-Switch (Gi0/1, Gi0/3) and Access-SW2 (Fa0/4, Fa0/9) show `Po1(SU)` with both member ports flagged `(P)`.
+
+**Confirmed STP now treats the bundle as a single logical link:**
+```
+show spanning-tree vlan 1
+```
+Port-channel1 appears as one interface (not two), with a lower path cost (12, versus 19 for a single physical link) — a direct, measurable demonstration of why link aggregation improves a switched topology, not just for redundancy but for STP's own path selection.
+
+**Current state — Layer 2 build complete:** VLANs (10/20/30/99) exist identically across all three switches. Both inter-switch links are trunked with a hardened native VLAN. A physical loop (Core-Switch ↔ SW2 ↔ SW1 ↔ SW2 direct) is safely managed by STP, verified via a live failover test. The Core↔SW2 link is now an EtherChannel bundle, verified and recognized by STP as a single path. Next: inter-VLAN routing via SVIs on Core-Switch, followed by OSPF — the start of the Layer 3 build.
 
 ## Next Steps
 - Close the physical loop (new SW1↔SW2 link) and configure Spanning Tree Protocol — predict port roles, verify root election, test failover
