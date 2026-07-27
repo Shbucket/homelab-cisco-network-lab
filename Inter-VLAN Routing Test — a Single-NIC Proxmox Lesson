@@ -1,0 +1,15 @@
+Inter-VLAN Routing Test — a Single-NIC Proxmox Lesson
+
+While testing inter-VLAN routing (new SVIs on Core-Switch for VLANs 10/20/30), attempted to move the switch port connected to a Proxmox-hosted server VM into VLAN 20, to validate that traffic could route between VLANs using a real device.
+
+What happened: the entire Proxmox host — including its own management interface and every other VM (DC01, Win10Client) — disappeared from the network, not just the intended server VM.
+
+Root cause: the Proxmox host has a single physical NIC. That one NIC carries the host's own management traffic and every VM's bridged traffic together, over one physical link. Reassigning the switch port to a new access VLAN moves the entire physical link, and everything riding on it, into that VLAN at once. There is no way to separate "just this VM" from "the host itself" using a simple access-port VLAN change on a single-NIC host.
+
+Resolution: reverted the port back to VLAN 1, immediately restoring access to the Proxmox host and every VM.
+
+The correct approach for this scenario (documented for a future, deliberate attempt): rather than an access port, the switch port needs to be a trunk carrying both VLAN 1 (host management) and VLAN 20 (server) tagged. Inside Proxmox, a second Linux bridge (e.g. vmbr1) would need to be created, tied to a VLAN-tagged sub-interface for VLAN 20, with only the server VM's virtual NIC attached to that new bridge — leaving the host's own management interface on the original bridge, untouched, on its native VLAN. This lets host management and VM traffic coexist safely on one physical link, properly separated by tagging rather than by which access VLAN the whole port belongs to.
+
+Lesson documented for future reference: a single-NIC virtualization host cannot have a VM's network membership changed independently of the host's own management network using a plain access-port move — doing so affects the entire host. Any VLAN change involving a hypervisor host's shared NIC needs to be planned as a trunk + tagged-bridge configuration, not a quick access-port reassignment.
+
+Given the risk to the live host, the actual inter-VLAN routing validation (VLAN 10 ↔ VLAN 20 ↔ VLAN 30, via Core-Switch's new SVIs) was completed in Packet Tracer instead, preserving the real hardware's stability while still confirming the routing concept end to end.
