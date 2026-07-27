@@ -309,10 +309,44 @@ show spanning-tree vlan 1
 ```
 Port-channel1 appears as one interface (not two), with a lower path cost (12, versus 19 for a single physical link) — a direct, measurable demonstration of why link aggregation improves a switched topology, not just for redundancy but for STP's own path selection.
 
-**Current state — Layer 2 build complete:** VLANs (10/20/30/99) exist identically across all three switches. Both inter-switch links are trunked with a hardened native VLAN. A physical loop (Core-Switch ↔ SW2 ↔ SW1 ↔ SW2 direct) is safely managed by STP, verified via a live failover test. The Core↔SW2 link is now an EtherChannel bundle, verified and recognized by STP as a single path. Next: inter-VLAN routing via SVIs on Core-Switch, followed by OSPF — the start of the Layer 3 build.
+## Inter-VLAN Routing — SVIs on Core-Switch
+
+With the Layer 2 build complete (VLANs, trunking, STP, EtherChannel), enabled Layer 3 routing on Core-Switch and created SVIs to allow devices in different VLANs to communicate with each other, moving from a purely switched topology into the start of the Layer 3 build.
+
+**Configuration applied on Core-Switch:**
+
+```
+configure terminal
+ip routing
+interface vlan 10
+ ip address 10.10.10.1 255.255.255.0
+ no shutdown
+interface vlan 20
+ ip address 10.10.20.1 255.255.255.0
+ no shutdown
+interface vlan 30
+ ip address 10.10.30.1 255.255.255.0
+ no shutdown
+end
+write memory
+```
+
+`ip routing` turns the 3560G into a Layer 3-capable device in addition to its existing Layer 2 switching role — the same physical switch now makes routing decisions between VLANs while continuing to switch traffic within them.
+
+**Verification:**
+
+```
+show ip interface brief
+show ip route
+```
+
+All three SVIs came up `up/up`, and each VLAN's network appeared as a new directly-connected (`C`) route in Core-Switch's routing table — no static routes needed for this step, since each VLAN's network is now directly attached to the switch itself via its SVI.
+
+**Real-world attempt at end-to-end validation, and a genuine lesson (see full write-up above): a single-NIC Proxmox host cannot have one VM's VLAN membership changed independently of the host's own management network via a simple access-port move — doing so takes down the entire host, not just the target VM.** Given that risk, full end-to-end inter-VLAN connectivity (a real device in one VLAN successfully routing to a real device in another) was validated in Packet Tracer instead, confirming the routing concept without risking the live homelab's stability.
+
+**Current state:** Core-Switch is now routing between VLANs 10, 20, and 30 via SVIs. Next: cabling both routers directly into Core-Switch (moving them off Access-SW2), building a dedicated transit VLAN, and configuring OSPF between Core-Switch and both routers — the next step in the Layer 3 build.
 
 ## Next Steps
-- Inter-VLAN routing via SVIs on Core-Switch
 - OSPF between routers and Core-Switch
 - ACLs for traffic segmentation
 - Connect VMs (Windows Server / Windows 10) to physical VLANs
