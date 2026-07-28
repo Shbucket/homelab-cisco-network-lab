@@ -344,9 +344,75 @@ All three SVIs came up `up/up`, and each VLAN's network appeared as a new direct
 
 **Real-world attempt at end-to-end validation, and a genuine lesson (see full write-up [here](https://github.com/Shbucket/homelab-cisco-network-lab/blob/main/Inter-VLAN%20Routing%20Test%20%E2%80%94%20a%20Single-NIC%20Proxmox%20Lesson) ): a single-NIC Proxmox host cannot have one VM's VLAN membership changed independently of the host's own management network via a simple access-port move — doing so takes down the entire host, not just the target VM.** Given that risk, full end-to-end inter-VLAN connectivity (a real device in one VLAN successfully routing to a real device in another) was validated in Packet Tracer instead, confirming the routing concept without risking the live homelab's stability.
 
-**Current state:** Core-Switch is now routing between VLANs 10, 20, and 30 via SVIs. Next: cabling both routers directly into Core-Switch (moving them off Access-SW2), building a dedicated transit VLAN, and configuring OSPF between Core-Switch and both routers — the next step in the Layer 3 build.
+## OSPF — Core-Switch, Router1, Router2, and a Three-Layer Troubleshooting Saga
+
+Moved both routers off Access-SW2 and cabled them directly into Core-Switch, built a dedicated transit VLAN, and configured single-area OSPF (Area 0) across all three Layer 3 devices — completing the start of the Layer 3 build alongside the SVIs from the previous milestone.
+
+**Configuration:**
+
+```
+! Core-Switch
+configure terminal
+vlan 100
+ name TRANSIT
+exit
+interface g0/2
+ switchport mode access
+ switchport access vlan 100
+ description CONNECTION-TO-ROUTER1
+interface g0/4
+ switchport mode access
+ switchport access vlan 100
+ description CONNECTION-TO-ROUTER2
+interface vlan 100
+ ip address 10.0.100.1 255.255.255.0
+ no shutdown
+exit
+router ospf 1
+ router-id 1.1.1.1
+ network 10.0.100.0 0.0.0.255 area 0
+ network 10.10.10.0 0.0.0.255 area 0
+ network 10.10.20.0 0.0.0.255 area 0
+ network 10.10.30.0 0.0.0.255 area 0
+```
+
+```
+! Router1 / Router2 (mirrored addressing)
+interface loopback 0
+ ip address 192.168.101.1 255.255.255.255   ! .102.1 on Router2
+interface g0/1
+ ip address 10.0.100.2 255.255.255.0        ! .100.3 on Router2
+ no shutdown
+router ospf 1
+ router-id 2.2.2.2                          ! 3.3.3.3 on Router2
+ network 10.0.100.0 0.0.0.255 area 0
+ network 192.168.101.1 0.0.0.0 area 0       ! .102.1 on Router2
+```
+
+**Real troubleshooting — three layers deep, worth documenting in full since each layer masked the next:**
+
+**Layer 1 — configuration applied to the wrong physical ports.** Initially configured VLAN 100 and interface descriptions on Gi0/5 and Gi0/6, but the routers were physically cabled into Gi0/2 and Gi0/4. `show ip interface brief` showed the configured ports as down (nothing plugged in) and the actual cabled ports still on their old VLAN — config and physical reality simply didn't match. Fixed by moving the VLAN 100 configuration onto the correct physical ports.
+
+**Layer 2 — a leftover test link created a false positive.** After fixing the port assignment, pings from Core-Switch to both routers still failed. Router-to-router pings, however, succeeded — which turned out to be misleading. A direct physical link between Router1 and Router2, left over from an earlier standalone static routing exercise, was still connected and carrying that traffic, masking the fact that the actual Core-Switch transit path had never been tested at all. Removing that leftover link (as it should have been removed once that earlier exercise was done) caused router-to-router connectivity to fail too, confirming the transit-via-Core-Switch path was the real, still-unverified path.
+
+**Layer 3 — the actual root cause: an unplugged cable.** With the misleading link removed, `show ip interface brief` on Router1 revealed `GigabitEthernet0/1` sitting at `down/down` — the transit cable to Core-Switch was never actually seated. All configuration on both ends had been correct the entire time. Reseating the physical cable resolved it immediately.
+
+**Verification, once the physical link was actually in place:**
+
+```
+show ip ospf neighbor
+```
+Both routers show `FULL` adjacency (Router1 as BDR, Router2 as DR).
+
+```
+show ip route ospf
+```
+Both loopback addresses appear as OSPF-learned (`O`) routes via the transit network.
+
+**A DR/BDR election detail worth noting:** despite being the central device in the topology, Core-Switch lost the DR/BDR election on this segment (`DROTHER`) — all three devices shared the default OSPF priority of 1, so the election came down purely to highest Router ID as the tiebreaker (Router2's `3.3.3.3` won DR, Router1's `2.2.2.2` took BDR, Core-Switch's `1.1.1.1` lost on both counts). A good, concrete reminder that OSPF's DR/BDR election is decided entirely by priority and Router ID — never by a device's actual role or importance in the topology.
+
+**Current state:** single-area OSPF running cleanly across Core-Switch and both routers, full adjacencies confirmed, loopbacks learned dynamically rather than requiring static routes. Next: ACLs for inter-VLAN traffic segmentation.
 
 ## Next Steps
-- OSPF between routers and Core-Switch
 - ACLs for traffic segmentation
 - Connect VMs (Windows Server / Windows 10) to physical VLANs
