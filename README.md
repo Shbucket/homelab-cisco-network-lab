@@ -413,6 +413,49 @@ Both loopback addresses appear as OSPF-learned (`O`) routes via the transit netw
 
 **Current state:** single-area OSPF running cleanly across Core-Switch and both routers, full adjacencies confirmed, loopbacks learned dynamically rather than requiring static routes. Next: ACLs for inter-VLAN traffic segmentation.
 
+## ACLs — Inter-VLAN Traffic Segmentation
+
+With OSPF and inter-VLAN routing complete, applied an extended ACL on Core-Switch to deliberately restrict traffic between VLAN 10 (WORKSTATIONS) and VLAN 20 (SERVERS), while leaving VLAN 30 (MGMT) fully reachable — real, targeted segmentation rather than an all-or-nothing block.
+
+**Configuration:**
+
+```
+ip access-list extended BLOCK-V10-TO-V20
+ deny ip 10.10.10.0 0.0.0.255 10.10.20.0 0.0.0.255
+ permit ip any any
+exit
+interface vlan 10
+ ip access-group BLOCK-V10-TO-V20 in
+```
+
+**Test setup:** temporarily brought up an unused access port on Access-SW2 (Fa0/10), assigned it to VLAN 10, and connected a real test PC (`10.10.10.50/24`, gateway `10.10.10.1`) to validate the ACL against actual traffic rather than a simulated topology.
+
+**Verification — three-part test, all results matched expectations exactly:**
+
+- `ping 10.10.20.1` (VLAN 20 gateway) — **failed**, with `Reply from 10.10.10.1: Destination net unreachable` — the precise signature of a local ACL rejection at the ingress interface, not a routing or reachability failure elsewhere in the network
+- `ping 10.10.30.1` (VLAN 30 gateway) — **succeeded**, confirming the ACL is targeted specifically at the VLAN 10 → VLAN 20 path, not blocking VLAN 10 broadly
+- `ping 10.10.10.1` (own gateway) — **succeeded** cleanly, confirming same-VLAN traffic is entirely unaffected by an inter-VLAN ACL, as expected
+
+**Hit counter confirmation:**
+
+```
+show access-lists
+```
+
+```
+Extended IP access list BLOCK-V10-TO-V20
+    10 deny ip 10.10.10.0 0.0.0.255 10.10.20.0 0.0.0.255 (8 matches)
+    20 permit ip any any (570 matches)
+```
+
+Deny and permit counters both incremented exactly as expected — the deny count reflecting the blocked test traffic, the permit count reflecting all other traffic crossing the VLAN 10 SVI.
+
+**Current state:** targeted inter-VLAN segmentation confirmed working end to end, on real hardware, with a real test device — not just configured, but validated against actual traffic and hit counters. Next: port security, DHCP snooping, and Dynamic ARP Inspection, followed by NTP/SNMP/Syslog across all five devices.
+
 ## Next Steps
-- ACLs for traffic segmentation
+- Port security, DHCP Snooping, and Dynamic ARP Inspection — access-edge hardening, labbed together since DAI depends on the DHCP snooping binding table
+- NTP, SNMP, and Syslog configuration across all five devices — centralized time sync and monitoring, doubling as the data-source groundwork for a future network operations dashboard
+- Netmiko automation script — remote config backup across all five devices, run against the completed real hardware build
+- Full power-cycle sign-off — power down and restore the entire rack, verify every feature (VLANs, trunking, STP, EtherChannel, SVIs, OSPF, ACLs) survives intact
 - Connect VMs (Windows Server / Windows 10) to physical VLANs
+
